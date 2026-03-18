@@ -57,4 +57,4 @@ def log_metrics(metrics: dict, status: str,
 if __name__ == "__main__":
     sample = {"cpu": 55.2, "memory": 63.0, "latency": 90, "disk_io": 30}
     log_metrics(sample, "Normal", filepath="data/test_log.csv")
-    print("Sample logged successfully → data/test_log.csv")
+    print("Sample logged successfully -> data/test_log.csv")

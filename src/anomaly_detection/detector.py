@@ -98,8 +98,8 @@ if __name__ == "__main__":
 
     # Normal sample
     normal = {"cpu": 45, "memory": 55, "latency": 80, "disk_io": 25}
-    print(f"Normal  → {detector.detect(normal)}")
+    print(f"Normal  -> {detector.detect(normal)}")
 
     # Anomalous sample
     anomaly = {"cpu": 98, "memory": 95, "latency": 450, "disk_io": 90}
-    print(f"Anomaly → {detector.detect(anomaly)}")
+    print(f"Anomaly -> {detector.detect(anomaly)}")
