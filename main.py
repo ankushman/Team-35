@@ -68,6 +68,11 @@ def monitoring_loop(simulate_spike: bool = False, interval: int = 3) -> None:
     iteration = 0
 
     while True:
+        # Check if monitoring is paused from the dashboard toggle
+        if not dashboard.MONITORING_ACTIVE:
+            time.sleep(1)
+            continue
+
         iteration += 1
         print(f"\n{'='*50}")
         log("INFO", f"Cycle #{iteration} - Collecting system metrics")

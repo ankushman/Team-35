@@ -19,8 +19,11 @@ import action_log
 
 app = Flask(__name__)
 
-# Global flag — set to True to enable CPU spike simulation
+# Global flag -- set to True to enable CPU spike simulation
 SIMULATE_SPIKE = False
+
+# Global flag -- controls whether the monitoring loop is active
+MONITORING_ACTIVE = True
 
 # ── HTML template ──────────────────────────────────────────────────────────────
 DASHBOARD_HTML = r"""
@@ -41,7 +44,7 @@ DASHBOARD_HTML = r"""
       padding: 32px 20px 60px;
     }
 
-    /* ── Header ── */
+    /* -- Header -- */
     header {
       text-align: center;
       margin-bottom: 36px;
@@ -56,6 +59,57 @@ DASHBOARD_HTML = r"""
       margin-top: 6px;
       font-size: 0.85rem;
     }
+
+    /* -- Toggle button -- */
+    .toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding: 10px 28px;
+      border: none;
+      border-radius: 30px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all 0.35s ease;
+      text-transform: uppercase;
+    }
+    .toggle-btn .icon { font-size: 1.15rem; }
+    .toggle-btn:active { transform: scale(0.96); }
+
+    .toggle-btn.running {
+      background: linear-gradient(135deg, #ff4444, #cc0033);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(255,68,68,0.35);
+    }
+    .toggle-btn.running:hover {
+      box-shadow: 0 6px 28px rgba(255,68,68,0.5);
+    }
+
+    .toggle-btn.stopped {
+      background: linear-gradient(135deg, #4caf50, #2e7d32);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(76,175,80,0.35);
+    }
+    .toggle-btn.stopped:hover {
+      box-shadow: 0 6px 28px rgba(76,175,80,0.5);
+    }
+
+    .paused-overlay {
+      display: none;
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 20px;
+      border-radius: 10px;
+      background: #1a1520;
+      border: 1px solid #555e80;
+      color: #888;
+      font-size: 1rem;
+      letter-spacing: 1px;
+    }
+    .paused-overlay.visible { display: block; }
 
     /* ── Grid layout ── */
     .layout {
@@ -248,10 +302,14 @@ DASHBOARD_HTML = r"""
   <header>
     <h1>&#9881; AIOps Self-Healing Dashboard</h1>
     <p id="subtitle">
-      <span class="live-dot"></span>
-      Live &nbsp;|&nbsp; Simulation: <strong>{{ simulate }}</strong>
+      <span class="live-dot" id="live-dot"></span>
+      <span id="status-label">Live</span> &nbsp;|&nbsp; Simulation: <strong>{{ simulate }}</strong>
       &nbsp;|&nbsp; Last update: <span id="ts">{{ timestamp }}</span>
     </p>
+    <button class="toggle-btn running" id="toggle-btn" onclick="toggleMonitor()">
+      <span class="icon" id="toggle-icon">&#9724;</span>
+      <span id="toggle-text">Stop Monitoring</span>
+    </button>
   </header>
 
   <div class="layout">
@@ -329,6 +387,11 @@ DASHBOARD_HTML = r"""
         </table>
         <div id="empty-state">No actions executed yet.<br>Waiting for an anomaly&hellip;</div>
       </div>
+    </div>
+
+    <!-- -- Paused overlay -- -->
+    <div class="paused-overlay" id="paused-overlay">
+      &#9208; Monitoring Paused &mdash; Click <strong>Run Monitoring</strong> to resume
     </div>
 
   </div>
@@ -452,11 +515,59 @@ DASHBOARD_HTML = r"""
     } catch(e) {}
   }
 
+  /* -- Monitor toggle control -- */
+  let monitorActive = true;
+
+  async function toggleMonitor() {
+    try {
+      const r = await fetch('/api/toggle', { method: 'POST' });
+      const d = await r.json();
+      monitorActive = d.active;
+      updateToggleUI();
+    } catch(e) { console.error('Toggle failed', e); }
+  }
+
+  async function pollMonitorStatus() {
+    try {
+      const r = await fetch('/api/monitor-status');
+      const d = await r.json();
+      monitorActive = d.active;
+      updateToggleUI();
+    } catch(e) {}
+  }
+
+  function updateToggleUI() {
+    const btn   = document.getElementById('toggle-btn');
+    const icon  = document.getElementById('toggle-icon');
+    const text  = document.getElementById('toggle-text');
+    const dot   = document.getElementById('live-dot');
+    const label = document.getElementById('status-label');
+    const overlay = document.getElementById('paused-overlay');
+
+    if (monitorActive) {
+      btn.className   = 'toggle-btn running';
+      icon.innerHTML  = '&#9724;';          // stop square
+      text.textContent = 'Stop Monitoring';
+      dot.style.background  = '#4caf50';
+      label.textContent     = 'Live';
+      overlay.classList.remove('visible');
+    } else {
+      btn.className   = 'toggle-btn stopped';
+      icon.innerHTML  = '&#9654;';          // play triangle
+      text.textContent = 'Run Monitoring';
+      dot.style.background  = '#f44336';
+      label.textContent     = 'Paused';
+      overlay.classList.add('visible');
+    }
+  }
+
   // Kick off polling
   pollMetrics();
   pollActions();
+  pollMonitorStatus();
   setInterval(pollMetrics, 3000);
   setInterval(pollActions, 2000);
+  setInterval(pollMonitorStatus, 2000);
 </script>
 </body>
 </html>
@@ -492,8 +603,24 @@ def api_metrics():
 
 @app.route("/api/actions")
 def api_actions():
-    """JSON endpoint — list of all executed corrective actions (newest first)."""
+    """JSON endpoint -- list of all executed corrective actions (newest first)."""
     return jsonify(action_log.get_all())
+
+
+@app.route("/api/toggle", methods=["POST"])
+def api_toggle():
+    """Toggle monitoring on/off and return new state."""
+    global MONITORING_ACTIVE
+    MONITORING_ACTIVE = not MONITORING_ACTIVE
+    state = "RUNNING" if MONITORING_ACTIVE else "PAUSED"
+    print(f"[DASHBOARD] Monitoring toggled: {state}")
+    return jsonify({"active": MONITORING_ACTIVE})
+
+
+@app.route("/api/monitor-status")
+def api_monitor_status():
+    """Return current monitoring state."""
+    return jsonify({"active": MONITORING_ACTIVE})
 
 
 # ── Runner ─────────────────────────────────────────────────────────────────────
