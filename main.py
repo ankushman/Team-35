@@ -50,18 +50,17 @@ def log(level: str, message: str) -> None:
 
 # ── Monitoring loop ────────────────────────────────────────────────────────────
 
-def monitoring_loop(simulate_spike: bool = False, interval: int = 3) -> None:
+def monitoring_loop(interval: int = 3) -> None:
     """
     Infinite loop that collects metrics, detects anomalies,
     and triggers corrective actions.
 
     Args:
-        simulate_spike: Forward the flag to the metrics collector.
-        interval:       Seconds to wait between each cycle.
+        interval: Seconds to wait between each cycle.
     """
     print(SEPARATOR)
     print("  AIOps Self-Healing Monitor")
-    print(f"  Simulation mode : {'ON  (CPU spikes 85–95%)' if simulate_spike else 'OFF (real metrics)'}")
+    print(f"  Simulation mode : Dynamic (Controlled via Dashboard)")
     print(f"  Poll interval   : {interval}s")
     print(SEPARATOR)
 
@@ -73,7 +72,7 @@ def monitoring_loop(simulate_spike: bool = False, interval: int = 3) -> None:
         log("INFO", f"Cycle #{iteration} — Collecting system metrics")
 
         # ── Step 1: Collect ───────────────────────────────────────────────────
-        metrics = get_metrics(simulate_spike=simulate_spike)
+        metrics = get_metrics(simulate_spike=dashboard.SIMULATE_SPIKE)
         print(f"  CPU    : {metrics['cpu']}%")
         print(f"  Memory : {metrics['memory']}%")
         print(f"  Disk   : {metrics['disk']}%")
@@ -141,7 +140,7 @@ def main() -> None:
 
     # Run the monitoring loop in the main thread
     try:
-        monitoring_loop(simulate_spike=args.simulate, interval=args.interval)
+        monitoring_loop(interval=args.interval)
     except KeyboardInterrupt:
         print("\n[INFO] Monitoring stopped by user.")
 

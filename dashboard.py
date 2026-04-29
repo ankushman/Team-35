@@ -19,8 +19,8 @@ import action_log
 
 app = Flask(__name__)
 
-# Global flag — set to True to enable CPU spike simulation
-SIMULATE_SPIKE = False
+# Global flag — set to True to enable CPU spike simulation by default
+SIMULATE_SPIKE = True
 
 # ── HTML template ──────────────────────────────────────────────────────────────
 DASHBOARD_HTML = r"""
@@ -102,6 +102,7 @@ DASHBOARD_HTML = r"""
     .topbar-status {
       display: flex; align-items: center; gap: 8px;
       font-size: 0.78rem; color: var(--text-2); transition: color 0.4s;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
     }
     .live-dot {
       width: 7px; height: 7px; background: var(--green); border-radius: 50%;
@@ -109,8 +110,29 @@ DASHBOARD_HTML = r"""
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
 
+    /* Simulation Toggle UI */
+    .sim-toggle-wrap {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sim-label { 
+      font-size: 0.78rem; color: var(--text-2); font-weight: 600; 
+      text-transform: uppercase; letter-spacing: 1px; 
+    }
+    .sim-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-2); padding: 4px 14px; border-radius: 12px;
+      font-size: 0.75rem; font-weight: 700; cursor: pointer;
+      transition: all 0.3s;
+    }
+    .sim-btn:hover { background: var(--row-hover); }
+    .sim-btn.active {
+      background: rgba(255,152,0,0.15); border-color: var(--orange); color: var(--orange);
+      box-shadow: 0 0 10px rgba(255,152,0,0.2);
+    }
+    .sim-btn.active:hover { background: rgba(255,152,0,0.25); }
+
     .topbar-right { display: flex; align-items: center; gap: 20px; }
-    .topbar-ts { font-size: 0.75rem; color: var(--text-2); transition: color 0.4s; }
+    .topbar-ts { font-size: 0.75rem; color: var(--text-2); transition: color 0.4s; font-weight: 500;}
 
     /* ── Theme toggle ── */
     .theme-toggle {
@@ -268,8 +290,13 @@ DASHBOARD_HTML = r"""
       <div class="topbar-status">
         <span class="live-dot"></span>
         <span>Live</span>
-        <span>&nbsp;·&nbsp;</span>
-        <span>Simulation: <strong>{{ simulate }}</strong></span>
+      </div>
+      <div class="topbar-divider"></div>
+      <div class="sim-toggle-wrap">
+        <span class="sim-label">Simulation:</span>
+        <button id="sim-toggle-btn" class="{{ 'sim-btn active' if simulate else 'sim-btn' }}" onclick="toggleSimulation()">
+          {{ 'ON' if simulate else 'OFF' }}
+        </button>
       </div>
     </div>
     <div class="topbar-right">
@@ -391,6 +418,28 @@ DASHBOARD_HTML = r"""
     return '';
   }
 
+  /* ── Toggle Simulation API ── */
+  async function toggleSimulation() {
+    try {
+      const r = await fetch('/api/toggle-simulation', { method: 'POST' });
+      const d = await r.json();
+      updateSimBtn(d.simulate_active);
+    } catch(e) {
+      console.error("Failed to toggle simulation", e);
+    }
+  }
+
+  function updateSimBtn(isActive) {
+    const btn = document.getElementById('sim-toggle-btn');
+    if (isActive) {
+      btn.className = 'sim-btn active';
+      btn.textContent = 'ON';
+    } else {
+      btn.className = 'sim-btn';
+      btn.textContent = 'OFF';
+    }
+  }
+
   /* ── Poll metrics ── */
   async function pollMetrics() {
     try {
@@ -408,6 +457,11 @@ DASHBOARD_HTML = r"""
       } else {
         banner.className = 'status-banner status-normal';
         banner.innerHTML = '&#10003; System Normal';
+      }
+
+      // Sync toggle button state from backend
+      if (d.simulate_active !== undefined) {
+        updateSimBtn(d.simulate_active);
       }
 
       document.getElementById('ts').textContent = new Date().toLocaleTimeString();
@@ -497,7 +551,7 @@ def index():
         memory=metrics["memory"],
         disk=metrics["disk"],
         anomaly=anomaly,
-        simulate="ON" if SIMULATE_SPIKE else "OFF",
+        simulate=SIMULATE_SPIKE,
         timestamp=datetime.now().strftime("%H:%M:%S"),
     )
 
@@ -507,6 +561,7 @@ def api_metrics():
     """JSON endpoint — live system metrics + anomaly flag."""
     metrics = get_metrics(simulate_spike=SIMULATE_SPIKE)
     metrics["anomaly"] = detect_anomaly(metrics["cpu"], metrics["memory"])
+    metrics["simulate_active"] = SIMULATE_SPIKE
     return jsonify(metrics)
 
 
@@ -514,6 +569,15 @@ def api_metrics():
 def api_actions():
     """JSON endpoint — list of all executed corrective actions (newest first)."""
     return jsonify(action_log.get_all())
+
+
+@app.route("/api/toggle-simulation", methods=["POST"])
+def api_toggle_simulation():
+    """Toggle CPU spike simulation on/off from the UI."""
+    global SIMULATE_SPIKE
+    SIMULATE_SPIKE = not SIMULATE_SPIKE
+    print(f"[DASHBOARD] Simulation toggled: {'ON' if SIMULATE_SPIKE else 'OFF'}")
+    return jsonify({"simulate_active": SIMULATE_SPIKE})
 
 
 # ── Runner ─────────────────────────────────────────────────────────────────────
@@ -529,9 +593,7 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 5000,
         simulate: Enable CPU spike simulation.
         debug:    Enable Flask debug mode (do not use in production).
     """
-    global SIMULATE_SPIKE
-    SIMULATE_SPIKE = simulate
-    print(f"[DASHBOARD] Starting on http://{host}:{port}  (simulate={simulate})")
+    print(f"[DASHBOARD] Starting on http://{host}:{port}  (simulate={SIMULATE_SPIKE})")
     app.run(host=host, port=port, debug=debug, use_reloader=False)
 
 
@@ -541,8 +603,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AIOps Web Dashboard")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--simulate", action="store_true",
-                        help="Enable CPU spike simulation")
+                        help="Enable CPU spike simulation (Now ON by default)")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    run_dashboard(port=args.port, simulate=args.simulate, debug=args.debug)
+    run_dashboard(port=args.port, simulate=SIMULATE_SPIKE, debug=args.debug)
