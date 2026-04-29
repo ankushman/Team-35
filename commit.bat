@@ -12,6 +12,9 @@ git commit -m "feat: UI/UX overhaul with circular gauges and dark/light mode"
 echo Renaming branch to main...
 git branch -M main
 
+echo Pulling remote changes to sync...
+git pull origin main --rebase
+
 echo Pushing to GitHub...
 git push -u origin main
 
