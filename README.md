@@ -63,7 +63,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Open your browser at **http://localhost:5000**
+Open your browser at **https://team-35.onrender.com/**
 
 ### With CPU spike simulation (demonstrates anomaly detection without stressing your machine)
 
